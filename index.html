@@ -4715,13 +4715,11 @@ document.addEventListener('click', function(e){
 
   var H = {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY};
 
-  // 单个请求超时包装（5秒）
+  // 简单 fetch，依靠外层 15 秒总超时兜底
   function sGet(path) {
-    var controller = new AbortController();
-    var tid = setTimeout(function(){ controller.abort(); }, 5000);
-    return fetch(SUPA_URL+'/rest/v1/'+path, {headers:H, signal:controller.signal})
-      .then(function(r){ clearTimeout(tid); return r.ok ? r.json() : []; })
-      .catch(function(e){ clearTimeout(tid); console.warn('[DB]',path,'failed:',e.message); return []; });
+    return fetch(SUPA_URL+'/rest/v1/'+path, {headers:H})
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .catch(function(e){ console.warn('[DB]',path,'failed:',e.message); return []; });
   }
 
   function setLoadTxt(t){ var e=el('dbLoadingText'); if(e) e.textContent=t; }
@@ -9837,13 +9835,11 @@ document.addEventListener('click', function(e){
 
   var H = {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY};
 
-  // 单个请求超时包装（5秒）
+  // 简单 fetch，依靠外层 15 秒总超时兜底
   function sGet(path) {
-    var controller = new AbortController();
-    var tid = setTimeout(function(){ controller.abort(); }, 5000);
-    return fetch(SUPA_URL+'/rest/v1/'+path, {headers:H, signal:controller.signal})
-      .then(function(r){ clearTimeout(tid); return r.ok ? r.json() : []; })
-      .catch(function(e){ clearTimeout(tid); console.warn('[DB]',path,'failed:',e.message); return []; });
+    return fetch(SUPA_URL+'/rest/v1/'+path, {headers:H})
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .catch(function(e){ console.warn('[DB]',path,'failed:',e.message); return []; });
   }
 
   function setLoadTxt(t){ var e=el('dbLoadingText'); if(e) e.textContent=t; }
