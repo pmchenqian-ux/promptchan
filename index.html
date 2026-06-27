@@ -806,7 +806,7 @@
   <div style="width:52px;height:52px;border:3px solid rgba(98,75,255,.15);border-top-color:#6247ff;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div>
   <div style="color:#9ca3af;font-size:14px;letter-spacing:.02em" id="dbLoadingText">正在连接数据库…</div>
   <button onclick="skipDbLoad()" style="margin-top:8px;background:none;border:1px solid rgba(255,255,255,.15);color:#6b7280;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer">跳过，直接登录</button>
-  <button onclick="diagDb()" style="margin-top:4px;background:none;border:1px solid rgba(98,75,255,.3);color:#a78bfa;border-radius:6px;padding:6px 16px;font-size:11px;cursor:pointer">🔍 诊断连接</button>
+  <button id="diagBtn" style="margin-top:4px;background:none;border:1px solid rgba(98,75,255,.3);color:#a78bfa;border-radius:6px;padding:6px 16px;font-size:11px;cursor:pointer">🔍 诊断连接</button>
   <div id="diagOut" style="margin-top:12px;font-size:11px;color:#9ca3af;max-width:420px;text-align:left;line-height:1.8;word-break:break-all;background:rgba(0,0,0,.4);padding:10px;border-radius:8px;display:none"></div>
 </div>
 
@@ -5928,7 +5928,7 @@ async function testDbWrite() {
   <div style="width:52px;height:52px;border:3px solid rgba(98,75,255,.15);border-top-color:#6247ff;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div>
   <div style="color:#9ca3af;font-size:14px;letter-spacing:.02em" id="dbLoadingText">正在连接数据库…</div>
   <button onclick="skipDbLoad()" style="margin-top:8px;background:none;border:1px solid rgba(255,255,255,.15);color:#6b7280;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer">跳过，直接登录</button>
-  <button onclick="diagDb()" style="margin-top:4px;background:none;border:1px solid rgba(98,75,255,.3);color:#a78bfa;border-radius:6px;padding:6px 16px;font-size:11px;cursor:pointer">🔍 诊断连接</button>
+  <button id="diagBtn" style="margin-top:4px;background:none;border:1px solid rgba(98,75,255,.3);color:#a78bfa;border-radius:6px;padding:6px 16px;font-size:11px;cursor:pointer">🔍 诊断连接</button>
   <div id="diagOut" style="margin-top:12px;font-size:11px;color:#9ca3af;max-width:420px;text-align:left;line-height:1.8;word-break:break-all;background:rgba(0,0,0,.4);padding:10px;border-radius:8px;display:none"></div>
 </div>
 
@@ -10040,30 +10040,32 @@ function skipDbLoad() {
 }
 
 async function diagDb() {
-  var out = el('diagOut');
-  if (!out) return;
+  var out = document.getElementById('diagOut');
+  if (!out) { alert('diagOut not found'); return; }
   out.style.display = 'block';
   out.innerHTML = '⏳ 诊断中…';
   var lines = [];
-  lines.push('SUPA_URL: ' + SUPA_URL);
-  lines.push('KEY前20位: ' + SUPA_KEY.slice(0,20) + '…');
-
+  lines.push('URL: ' + SUPA_URL);
   var tables = ['admins','works','admin_materials','user_materials','platform_users'];
   for (var i=0; i<tables.length; i++) {
     var t = tables[i];
     try {
-      var url = SUPA_URL + '/rest/v1/' + t + '?limit=1';
-      var r = await fetch(url, {
-        headers: {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}
+      var r = await fetch(SUPA_URL + '/rest/v1/' + t + '?limit=1', {
+        headers: {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'}
       });
       var txt = await r.text();
-      lines.push((r.ok ? '✅' : '❌') + ' ' + t + ': HTTP ' + r.status + ' → ' + txt.slice(0,80));
+      lines.push((r.ok?'✅':'❌')+' '+t+': '+r.status+' → '+txt.slice(0,100));
     } catch(e) {
-      lines.push('❌ ' + t + ': ' + e.message);
+      lines.push('❌ '+t+': '+e.message);
     }
+    out.innerHTML = lines.join('<br>');
   }
-  out.innerHTML = lines.join('<br>');
 }
+// 绑定诊断按钮
+document.addEventListener('DOMContentLoaded', function() {
+  var diagBtn = document.getElementById('diagBtn');
+  if (diagBtn) diagBtn.addEventListener('click', function(){ diagDb(); });
+});
 </script>
 
 <!-- ══ IMAGE SOURCE PICKER MODAL ══ -->
