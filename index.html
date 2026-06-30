@@ -3763,7 +3763,11 @@ function doGenerate() {
     .then(function(result) {
       if (genCancelled) return;
       finishProgressAnim();
-      setTimeout(function() { showApiResults(result, _capturedMode); }, 600);
+      setTimeout(function() {
+        showApiResults(result, _capturedMode);
+        // 自动存入数据库
+        setTimeout(function() { autoSaveAllResults(); }, 800);
+      }, 600);
     })
     .catch(function(err) {
       clearInterval(_genProgressInterval);
@@ -3865,6 +3869,24 @@ function showApiResults(taskData, mode) {
 
 // legacy shim
 function showGenResults() { showApiResults({ results:[] }, _capturedMode); }
+
+// ─────────────────────────────────────────────────────────────
+//  AUTO SAVE ALL RESULTS TO DB（生成完成后自动存入）
+// ─────────────────────────────────────────────────────────────
+function autoSaveAllResults() {
+  var cards = document.querySelectorAll('#result-grid .result-card');
+  var saved = 0;
+  cards.forEach(function(c) {
+    var btn = c.querySelector('.rc-btn');
+    if (btn && !btn.classList.contains('saved') && !btn.disabled) {
+      btn.click();
+      saved++;
+    }
+  });
+  if (saved > 0) {
+    showToast('success', '✅ 已自动存入数据库 ' + saved + ' 件');
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 //  SAVE WORK TO LIBRARY
