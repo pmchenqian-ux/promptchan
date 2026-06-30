@@ -4939,6 +4939,7 @@ document.addEventListener('click', function(e){
 })();
 
 // ── 视频播放器 ────────────────────────────────────────────────
+var _videoPlayToken = 0;
 function openVideoPlayer(src, title) {
   var modal = el('videoPlayerModal');
   var vid   = el('videoPlayerEl');
@@ -4946,9 +4947,15 @@ function openVideoPlayer(src, title) {
   if (!modal || !vid) return;
   if (!src) { showToast('error','视频地址缺失，无法播放'); return; }
 
-  // 清理上一次绑定的错误监听，避免重复触发
+  // 每次打开生成一个新令牌，旧的播放请求/回调一律视为过期，避免互相打断报错
+  var myToken = ++_videoPlayToken;
+
+  // 清理上一次绑定的事件监听，避免重复触发
   if (vid._errHandler) vid.removeEventListener('error', vid._errHandler);
+  if (vid._canplayHandler) vid.removeEventListener('canplay', vid._canplayHandler);
+
   vid._errHandler = function(){
+    if (myToken !== _videoPlayToken) return; // 已被新的播放请求取代，忽略过期错误
     var err = vid.error;
     var msg = '视频加载失败';
     if (err) {
@@ -4964,18 +4971,42 @@ function openVideoPlayer(src, title) {
 
   if (tit) tit.textContent = title || '';
   modal.classList.add('open');
+
+  // 切换视频源前先暂停旧的播放，干净地结束上一个 play() 请求，
+  // 避免"新请求打断旧请求"产生的 AbortError 控制台噪音
+  try { vid.pause(); } catch (e) {}
+  vid.muted = false; // 有声音
   vid.src = src;
   vid.load();
-  vid.muted = false;   // 有声音
-  vid.play().catch(function(e){
-    // 浏览器阻止自动带声播放等情况，静音后重试一次
-    vid.muted = true;
-    vid.play().catch(function(){ console.warn('[video] 播放被阻止:', e && e.message); });
-  });
+
+  function attemptPlay() {
+    if (myToken !== _videoPlayToken) return; // 期间又切换了视频，放弃本次播放
+    var p = vid.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function (e) {
+        if (myToken !== _videoPlayToken) return; // 已切换，属于正常打断，无需提示
+        if (e && e.name === 'AbortError') return; // 被新请求正常中止，静默忽略
+        // 浏览器阻止自动带声播放等情况，静音后重试一次
+        vid.muted = true;
+        var p2 = vid.play();
+        if (p2 && typeof p2.catch === 'function') {
+          p2.catch(function (e2) {
+            if (myToken !== _videoPlayToken) return;
+            console.warn('[video] 播放被阻止:', e2 && e2.message);
+          });
+        }
+      });
+    }
+  }
+  // 元数据/可播放状态就绪后再尝试一次，比 load() 后立即 play() 更稳妥
+  vid._canplayHandler = attemptPlay;
+  vid.addEventListener('canplay', vid._canplayHandler, { once: true });
+  attemptPlay();
 }
 function closeVideoPlayer() {
   var modal = el('videoPlayerModal');
   var vid   = el('videoPlayerEl');
+  _videoPlayToken++; // 使任何尚未完成的播放请求安全失效，不再触发回调
   if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
   if (modal) modal.classList.remove('open');
 }
