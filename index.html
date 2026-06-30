@@ -3800,6 +3800,48 @@ function resetCreate() {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  截取视频首帧作为封面（当接口未返回封面图时使用）
+// ─────────────────────────────────────────────────────────────
+function captureVideoThumbnail(videoUrl) {
+  return new Promise(function(resolve){
+    var settled = false;
+    function finish(result){ if(settled) return; settled = true; resolve(result); }
+    try {
+      var v = document.createElement('video');
+      v.crossOrigin = 'anonymous';   // 尝试跨域读取像素，失败则静默回退
+      v.muted = true;
+      v.playsInline = true;
+      v.preload = 'auto';
+      v.src = videoUrl;
+
+      function doCapture(){
+        try {
+          var canvas = document.createElement('canvas');
+          canvas.width  = v.videoWidth  || 320;
+          canvas.height = v.videoHeight || 180;
+          if (!canvas.width || !canvas.height) { finish(null); return; }
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL('image/jpeg', 0.82));
+        } catch (e) {
+          // 多半是视频服务器未开放 CORS，画布被污染，无法导出
+          console.warn('[封面截取] 失败（可能是跨域限制）:', e.message);
+          finish(null);
+        }
+      }
+
+      v.addEventListener('loadeddata', function(){
+        try { v.currentTime = Math.min(0.3, (v.duration || 1) / 4) || 0.1; }
+        catch(e) { doCapture(); }
+      });
+      v.addEventListener('seeked', doCapture);
+      v.addEventListener('error', function(){ finish(null); });
+      setTimeout(function(){ finish(null); }, 6000); // 超时兜底，避免一直转圈
+    } catch (e) { finish(null); }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
 //  SHOW RESULTS
 // ─────────────────────────────────────────────────────────────
 function showApiResults(taskData, mode) {
@@ -3825,23 +3867,46 @@ function showApiResults(taskData, mode) {
   results.forEach(function(res) {
     var itemId    = nextWorkId++;
     var isVid     = !!(res.mimeType && res.mimeType.startsWith('video'));
-    var mainSrc   = res.url;
-    var thumbSrc  = res.thumbnailUrl || res.url;
+    // 兼容后端可能返回的不同字段名
+    var mainSrc   = res.url || res.fileUrl || res.videoUrl || res.resultUrl || res.outputUrl;
+    var apiThumb  = res.thumbnailUrl || res.coverUrl || res.posterUrl || null;
     var itemTitle = baseTitle || (modeInfo.label + ' #' + itemId);
 
     var card = mk('div',{cls:'result-card',id:'rc-'+itemId});
+    // 持有最新缩略图，供"存入"按钮在异步生成完成后也能取到正确的值
+    var resState = { thumb: apiThumb };
 
     if (isVid) {
-      // Video: show thumbnail with play button, clicking opens video in new tab
+      // Video: 封面 + 播放按钮
       var wrap = mk('div',{css:'position:relative;width:100%;padding-top:75%;overflow:hidden;border-radius:8px;background:#111;cursor:pointer'});
       var thumb = mk('img');
-      thumb.src = thumbSrc;
-      thumb.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.75';
+      thumb.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.75;display:'+(apiThumb?'block':'none');
+      if (apiThumb) thumb.src = apiThumb;
+      var loadingHint = mk('div',{css:'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px',html:apiThumb?'':'<i class="fa fa-spinner fa-spin" style="margin-right:6px"></i>生成封面中…'});
       var overlay = mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px'});
       overlay.innerHTML = '<div style="width:52px;height:52px;border-radius:50%;background:rgba(98,75,255,.85);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(98,75,255,.4)"><i class="fa fa-play" style="color:#fff;font-size:20px;margin-left:3px"></i></div><div style="font-size:11px;color:rgba(255,255,255,.8);font-weight:600">点击播放</div>';
-      wrap.appendChild(thumb); wrap.appendChild(overlay);
-      (function(vsrc,vt){ wrap.addEventListener('click', function(){ openVideoPlayer(vsrc, vt); }); })(mainSrc, itemTitle);
+      wrap.appendChild(thumb); wrap.appendChild(loadingHint); wrap.appendChild(overlay);
+      (function(vsrc,vt){
+        wrap.addEventListener('click', function(){
+          if (!vsrc) { showToast('error','视频地址缺失，请重新生成'); return; }
+          openVideoPlayer(vsrc, vt);
+        });
+      })(mainSrc, itemTitle);
       card.appendChild(wrap);
+
+      // 若接口没给封面图，本地从视频首帧截取一张真实封面（而不是把视频地址当图片用）
+      if (!apiThumb && mainSrc) {
+        captureVideoThumbnail(mainSrc).then(function(dataUrl){
+          if (dataUrl) {
+            thumb.src = dataUrl;
+            thumb.style.display = 'block';
+            loadingHint.style.display = 'none';
+            resState.thumb = dataUrl;
+          } else {
+            loadingHint.innerHTML = '<i class="fa fa-film" style="margin-right:6px"></i>暂无封面';
+          }
+        });
+      }
     } else {
       // Image: show directly, clicking opens full size
       var img = mk('img');
@@ -3856,7 +3921,7 @@ function showApiResults(taskData, mode) {
     var acts  = mk('div',{cls:'rc-actions'});
 
     var saveB = mk('button',{cls:'rc-btn',html:'<i class="fa fa-save"></i> 存入'});
-    saveB.addEventListener('click',(function(id,src,t,m,iv,th){return function(){ saveSingleWork(id,src,t,m,iv,th); };})(itemId,mainSrc,itemTitle,mode,isVid,thumbSrc));
+    saveB.addEventListener('click',(function(id,src,t,m,iv,state){return function(){ saveSingleWork(id,src,t,m,iv,state.thumb); };})(itemId,mainSrc,itemTitle,mode,isVid,resState));
 
     var dlB = mk('button',{cls:'rc-btn',html:'<i class="fa fa-download"></i>'});
     dlB.addEventListener('click',(function(src){return function(){ window.open(src,'_blank'); };})(mainSrc));
@@ -4815,17 +4880,39 @@ function openVideoPlayer(src, title) {
   var vid   = el('videoPlayerEl');
   var tit   = el('videoPlayerTitle');
   if (!modal || !vid) return;
+  if (!src) { showToast('error','视频地址缺失，无法播放'); return; }
+
+  // 清理上一次绑定的错误监听，避免重复触发
+  if (vid._errHandler) vid.removeEventListener('error', vid._errHandler);
+  vid._errHandler = function(){
+    var err = vid.error;
+    var msg = '视频加载失败';
+    if (err) {
+      // 1=ABORTED 2=NETWORK 3=DECODE 4=SRC_NOT_SUPPORTED
+      if (err.code === 4) msg = '视频地址无效或格式不支持';
+      else if (err.code === 2) msg = '网络错误，视频加载失败';
+      else if (err.code === 3) msg = '视频解码失败';
+    }
+    showToast('error', msg);
+    console.error('[video] 播放失败:', src, err);
+  };
+  vid.addEventListener('error', vid._errHandler);
+
+  if (tit) tit.textContent = title || '';
+  modal.classList.add('open');
   vid.src = src;
   vid.load();
   vid.muted = false;   // 有声音
-  if (tit) tit.textContent = title || '';
-  modal.classList.add('open');
-  vid.play().catch(function(){});
+  vid.play().catch(function(e){
+    // 浏览器阻止自动带声播放等情况，静音后重试一次
+    vid.muted = true;
+    vid.play().catch(function(){ console.warn('[video] 播放被阻止:', e && e.message); });
+  });
 }
 function closeVideoPlayer() {
   var modal = el('videoPlayerModal');
   var vid   = el('videoPlayerEl');
-  if (vid) { vid.pause(); vid.src = ''; }
+  if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
   if (modal) modal.classList.remove('open');
 }
 // ESC 关闭
