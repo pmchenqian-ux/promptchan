@@ -3856,7 +3856,7 @@ function showApiResults(taskData, mode) {
     var acts  = mk('div',{cls:'rc-actions'});
 
     var saveB = mk('button',{cls:'rc-btn',html:'<i class="fa fa-save"></i> 存入'});
-    saveB.addEventListener('click',(function(id,src,t,m,iv){return function(){ saveSingleWork(id,src,t,m,iv); };})(itemId,mainSrc,itemTitle,mode,isVid));
+    saveB.addEventListener('click',(function(id,src,t,m,iv,th){return function(){ saveSingleWork(id,src,t,m,iv,th); };})(itemId,mainSrc,itemTitle,mode,isVid,thumbSrc));
 
     var dlB = mk('button',{cls:'rc-btn',html:'<i class="fa fa-download"></i>'});
     dlB.addEventListener('click',(function(src){return function(){ window.open(src,'_blank'); };})(mainSrc));
@@ -3891,17 +3891,18 @@ function autoSaveAllResults() {
 // ─────────────────────────────────────────────────────────────
 //  SAVE WORK TO LIBRARY
 // ─────────────────────────────────────────────────────────────
-function saveSingleWork(id, src, title, mode, isVideo) {
+function saveSingleWork(id, src, title, mode, isVideo, thumb) {
   var mediaType = isVideo ? 'video' : 'image';
   var today     = new Date().toISOString().slice(0,10);
   var creator   = currentUser ? currentUser.username : 'admin';
   var matId     = 'adm-' + id + '-' + Date.now();
+  var thumbVal  = isVideo ? (thumb || null) : src;
 
   var workObj = { title:title, type:mediaType, mode:mode, src:src,
-    video_src: isVideo?src:null, style:mode, status:'approved',
+    video_src: isVideo?src:null, thumb:thumbVal, style:mode, status:'approved',
     creator:creator, created_at:today, likes:0, origin:'admin' };
   var matObj  = { id:matId, work_id:null, title:title, src:src, mode:mode,
-    video_src: isVideo?src:null, media_type:mediaType,
+    video_src: isVideo?src:null, thumb:thumbVal, media_type:mediaType,
     creator:creator, created_at:today, likes:0, starred:false, recommended:false };
 
   var btn = document.querySelector('#rc-'+id+' .rc-btn');
@@ -4330,7 +4331,7 @@ function renderMaterialsPage() {
           if (vsrc) openVideoPlayer(vsrc, vtitle);
           else showToast('error','暂无视频源，请先生成视频');
         });
-      })(m.videoSrc || (m.src && m.src.match(/\.(mp4|webm|mov|m3u8)/i) ? m.src : null), m.title);
+      })(m.videoSrc || m.src, m.title);
       wrap.appendChild(ph);
       var vtypePill = mk('div',{cls:'ml-vid-type-pill',html:'<i class="fa fa-film"></i> 视频'});
       wrap.appendChild(vtypePill);
