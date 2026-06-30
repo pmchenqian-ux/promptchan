@@ -249,8 +249,8 @@
     opacity:0; transition:opacity .2s; pointer-events:none;
     display:flex; flex-direction:column; justify-content:flex-end; padding:10px; gap:6px;
   }
-  .ml-card:hover .ml-overlay { opacity:1; pointer-events:auto; }
-  .ml-ov-actions { display:flex; gap:5px; flex-wrap:wrap; }
+  .ml-card:hover .ml-overlay { opacity:1; }
+  .ml-ov-actions { display:flex; gap:5px; flex-wrap:wrap; pointer-events:auto; }
   .ml-ov-btn {
     background:rgba(255,255,255,.13); border:none; color:#fff;
     border-radius:6px; padding:4px 9px; font-size:11px; cursor:pointer;
@@ -470,10 +470,10 @@
   .content-thumb { border-radius: 10px; overflow: hidden; background: var(--card); border: 1px solid var(--border); position: relative; cursor: pointer; }
   .content-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .content-thumb .overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.8) 0%, transparent 50%); opacity: 0; transition: opacity .2s; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; padding: 10px; }
-  .content-thumb:hover .overlay { opacity: 1; pointer-events: auto; }
+  .content-thumb:hover .overlay { opacity: 1; }
   .content-thumb .ov-title { font-size: 12px; font-weight: 600; }
   .content-thumb .ov-meta { font-size: 11px; color: var(--muted); }
-  .content-thumb .ov-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .content-thumb .ov-actions { display: flex; gap: 6px; margin-top: 6px; pointer-events: auto; }
   .content-thumb .ov-btn { background: rgba(255,255,255,.1); border: none; color: #fff; border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer; transition: background .15s; }
   .content-thumb .ov-btn:hover { background: var(--purple); }
   .content-thumb .status-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; }
@@ -2856,11 +2856,13 @@ function renderContentPage() {
       if (w.thumb) {
         var vThumb = mk('img');
         vThumb.style.cssText = 'width:100%;height:100%;object-fit:cover;opacity:.65;position:absolute;inset:0';
-        vThumb.onerror = function(){ this.remove(); };
+        vThumb.onerror = function(){ this.remove(); if(vidSrc) mediaWrap.insertBefore(mkVideoCoverEl(vidSrc), mediaWrap.firstChild); };
         vThumb.src = w.thumb;
         mediaWrap.appendChild(vThumb);
+      } else if (vidSrc) {
+        mediaWrap.appendChild(mkVideoCoverEl(vidSrc));
       }
-      var playIcon = mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer'});
+      var playIcon = mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;z-index:2'});
       playIcon.innerHTML = '<div style="width:48px;height:48px;border-radius:50%;background:rgba(98,75,255,.85);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(98,75,255,.5)"><i class="fa fa-play" style="color:#fff;font-size:18px;margin-left:3px"></i></div><span style="color:rgba(255,255,255,.75);font-size:11px">点击播放</span>';
       (function(vs, vt){ playIcon.addEventListener('click', function(e){ e.stopPropagation(); openVideoPlayer(vs, vt); }); })(vidSrc, w.title);
       mediaWrap.appendChild(playIcon);
@@ -3846,6 +3848,24 @@ function captureVideoThumbnail(videoUrl) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  通用视频封面兜底：直接用 <video> 元素展示首帧
+//  （不读取像素数据，因此不受 CORS 限制，比 canvas 截图更可靠）
+// ─────────────────────────────────────────────────────────────
+function mkVideoCoverEl(src, extraCss) {
+  var v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'metadata';
+  v.setAttribute('muted','');
+  v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.75;pointer-events:none;background:#0a0a0f;' + (extraCss||'');
+  v.addEventListener('loadedmetadata', function () {
+    try { v.currentTime = Math.min(0.3, (v.duration || 1) / 4) || 0.1; } catch (e) {}
+  });
+  // 加载失败时静默移除，让底层渐变背景兜底，不影响播放按钮点击
+  v.addEventListener('error', function () { v.remove(); });
+  v.src = src;
+  return v;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  SHOW RESULTS
 // ─────────────────────────────────────────────────────────────
 var _pendingThumbPromises = [];
@@ -3910,10 +3930,13 @@ function showApiResults(taskData, mode) {
       var thumb = mk('img');
       thumb.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.75;display:'+(apiThumb?'block':'none');
       if (apiThumb) thumb.src = apiThumb;
-      var loadingHint = mk('div',{css:'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px',html:apiThumb?'':'<i class="fa fa-spinner fa-spin" style="margin-right:6px"></i>生成封面中…'});
+      var coverVideo = null;
+      if (!apiThumb && mainSrc) { coverVideo = mkVideoCoverEl(mainSrc); }
       var overlay = mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px'});
       overlay.innerHTML = '<div style="width:52px;height:52px;border-radius:50%;background:rgba(98,75,255,.85);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(98,75,255,.4)"><i class="fa fa-play" style="color:#fff;font-size:20px;margin-left:3px"></i></div><div style="font-size:11px;color:rgba(255,255,255,.8);font-weight:600">点击播放</div>';
-      wrap.appendChild(thumb); wrap.appendChild(loadingHint); wrap.appendChild(overlay);
+      wrap.appendChild(thumb);
+      if (coverVideo) wrap.appendChild(coverVideo);
+      wrap.appendChild(overlay);
       (function(vsrc,vt){
         wrap.addEventListener('click', function(){
           if (!vsrc) { showToast('error','视频地址缺失，请重新生成'); return; }
@@ -3922,16 +3945,15 @@ function showApiResults(taskData, mode) {
       })(mainSrc, itemTitle);
       card.appendChild(wrap);
 
-      // 若接口没给封面图，本地从视频首帧截取一张真实封面（而不是把视频地址当图片用）
+      // 若接口没给封面图，尝试本地从视频首帧截取一张可持久化保存的真实封面图（用于存库）；
+      // 截取失败（多为跨域限制）也没关系，上面的 <video> 首帧兜底已经能正常展示封面
       if (!apiThumb && mainSrc) {
         var capP = captureVideoThumbnail(mainSrc).then(function(dataUrl){
           if (dataUrl) {
             thumb.src = dataUrl;
             thumb.style.display = 'block';
-            loadingHint.style.display = 'none';
             resState.thumb = dataUrl;
-          } else {
-            loadingHint.innerHTML = '<i class="fa fa-film" style="margin-right:6px"></i>暂无封面';
+            if (coverVideo) coverVideo.remove();
           }
         });
         _pendingThumbPromises.push(capP);
@@ -4410,14 +4432,18 @@ function renderMaterialsPage() {
       if (m.thumb) {
         var poster = mk('img'); poster.loading='lazy';
         poster.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.7';
-        poster.onerror = function(){ this.remove(); ph.style.background='linear-gradient(135deg,#1a1a2e,#16213e)'; };
+        poster.onerror = function(){ this.remove(); if(posterSrc) ph.insertBefore(mkVideoCoverEl(posterSrc), ph.firstChild); else ph.style.background='linear-gradient(135deg,#1a1a2e,#16213e)'; };
         poster.src = m.thumb;
         ph.appendChild(poster);
+      } else if (posterSrc) {
+        ph.appendChild(mkVideoCoverEl(posterSrc));
       } else {
         ph.style.background='linear-gradient(135deg,#1a1a2e,#16213e)';
       }
       var play = mk('div',{cls:'ml-vid-play',html:'<i class="fa fa-play" style="margin-left:3px"></i>'});
+      play.style.position='relative'; play.style.zIndex='2';
       var dur  = mk('div',{cls:'ml-vid-dur',text:m.duration||'—'});
+      dur.style.position='relative'; dur.style.zIndex='2';
       ph.appendChild(play); ph.appendChild(dur);
       // 点击播放
       (function(vsrc, vtitle){
