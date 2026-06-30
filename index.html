@@ -3767,8 +3767,10 @@ function doGenerate() {
       finishProgressAnim();
       setTimeout(function() {
         showApiResults(result, _capturedMode);
-        // 自动存入数据库
-        setTimeout(function() { autoSaveAllResults(); }, 800);
+        // 自动存入数据库：等封面截取完成后再存，避免存入空封面
+        Promise.all(_pendingThumbPromises.length ? _pendingThumbPromises : [Promise.resolve()])
+          .then(function(){ autoSaveAllResults(); })
+          .catch(function(){ autoSaveAllResults(); });
       }, 600);
     })
     .catch(function(err) {
@@ -3846,12 +3848,14 @@ function captureVideoThumbnail(videoUrl) {
 // ─────────────────────────────────────────────────────────────
 //  SHOW RESULTS
 // ─────────────────────────────────────────────────────────────
+var _pendingThumbPromises = [];
 function showApiResults(taskData, mode) {
   el('create-generating').style.display = 'none';
   el('create-results').style.display    = 'block';
   el('genBtn').disabled = false;
 
   var results  = taskData.results || [];
+  _pendingThumbPromises = [];
   var titleEl  = el('create-title');
   var baseTitle = titleEl ? titleEl.value.trim() : '';
   var modeInfo  = modeLabels[mode] || { label:mode, icon:'fa-magic' };
@@ -3863,8 +3867,30 @@ function showApiResults(taskData, mode) {
   if (!results.length) {
     var emptyDiv = mk('div',{css:'padding:40px;text-align:center;color:var(--muted)',html:'<i class="fa fa-exclamation-circle" style="font-size:24px;display:block;margin-bottom:10px"></i>未获取到结果，请重试'});
     grid.appendChild(emptyDiv);
-    return;
   }
+
+  // ── 调试面板：直接把接口原始返回数据展示出来，方便截图反馈，无需打开控制台 ──
+  var dbgWrap = el('create-results');
+  if (dbgWrap) {
+    var oldDbg = document.getElementById('apiDebugPanel');
+    if (oldDbg) oldDbg.remove();
+    var details = mk('div',{id:'apiDebugPanel'});
+    details.style.cssText = 'margin-top:14px;border:1px dashed var(--border2);border-radius:8px;overflow:hidden';
+    details.innerHTML =
+      '<div id="apiDebugToggle" style="padding:8px 12px;font-size:12px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px">' +
+        '<i class="fa fa-bug"></i> 查看接口原始返回数据（如果显示异常，截图这里发给客服/技术）' +
+      '</div>' +
+      '<pre id="apiDebugBody" style="display:none;margin:0;padding:12px;font-size:11px;line-height:1.5;color:#9be29b;background:#0a0a0f;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-all"></pre>';
+    dbgWrap.appendChild(details);
+    var dbgBody = details.querySelector('#apiDebugBody');
+    try { dbgBody.textContent = JSON.stringify(taskData, null, 2); }
+    catch(e) { dbgBody.textContent = String(taskData); }
+    details.querySelector('#apiDebugToggle').addEventListener('click', function(){
+      dbgBody.style.display = dbgBody.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+
+  if (!results.length) return;
 
   results.forEach(function(res) {
     var itemId    = nextWorkId++;
@@ -3898,7 +3924,7 @@ function showApiResults(taskData, mode) {
 
       // 若接口没给封面图，本地从视频首帧截取一张真实封面（而不是把视频地址当图片用）
       if (!apiThumb && mainSrc) {
-        captureVideoThumbnail(mainSrc).then(function(dataUrl){
+        var capP = captureVideoThumbnail(mainSrc).then(function(dataUrl){
           if (dataUrl) {
             thumb.src = dataUrl;
             thumb.style.display = 'block';
@@ -3908,6 +3934,7 @@ function showApiResults(taskData, mode) {
             loadingHint.innerHTML = '<i class="fa fa-film" style="margin-right:6px"></i>暂无封面';
           }
         });
+        _pendingThumbPromises.push(capP);
       }
     } else {
       // Image: show directly, clicking opens full size
@@ -4405,8 +4432,13 @@ function renderMaterialsPage() {
       var vtypePill = mk('div',{cls:'ml-vid-type-pill',html:'<i class="fa fa-film"></i> 视频'});
       wrap.appendChild(vtypePill);
     } else {
-      var img = mk('img'); img.src=m.src; img.loading='lazy';
-      wrap.appendChild(img);
+      if (m.src) {
+        var img = mk('img'); img.src=m.src; img.loading='lazy';
+        img.onerror = function(){ this.replaceWith(mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);font-size:11px;background:linear-gradient(135deg,#1a1a2e,#16213e)',html:'<i class="fa fa-exclamation-triangle" style="font-size:18px;color:#f87171"></i>地址无效'})); };
+        wrap.appendChild(img);
+      } else {
+        wrap.appendChild(mk('div',{css:'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);font-size:11px;background:linear-gradient(135deg,#1a1a2e,#16213e)',html:'<i class="fa fa-exclamation-triangle" style="font-size:18px;color:#f87171"></i>素材地址缺失<br>建议删除'}));
+      }
     }
 
     // ── hover overlay
